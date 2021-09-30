@@ -11,7 +11,7 @@ struct UEinfo{
 	int activityFlag; // activityFlag = 1 for users that participate in the RA procedure
 	int RAPID; // A value between 0 and nPreambles-1. 
 	int TCRNTI[16]; // 16-bit in length. 
-	int *CCCH; // *(CCCH)=length of the CCCH SDU based on the value of LCID
+	int *CCCH; // *(CCCH) = LCID
 	int raFlag; // raFlag = 1 for successful RA procedure; otherwise, raFlag = 0 (these values are assigned if activityFlag = 1)
 	int CRNTI[16]; // Upon successful RA procedure, TCRNTI becomes CRNTI
 };
@@ -34,8 +34,14 @@ double complex** MSG3_Resource_Alocation(int n);
 void MSG3_Transmission(struct UEinfo *user, char *str, double complex **resource);
 void CCCH_Message(struct UEinfo *user, int LCID);
 void QPSK(int *bit_stream, double complex *channel);
+void AWGN(float sigma2, double complex **resource, int n);
+int** MSG4_Structure(int n);
+void MSG4_Transmission(int **msg, double complex **resource, int *collisionResult, int n);
+void Decode(int *bitstream, double complex *received);
 void Print_User_Info(struct UEinfo *user);
-void Print_Received_MSG(double complex **channel, int *collision_result, int n_resources);
+void Print_MSG4(int **msg, int n);
+void Contention_Resolution(struct UEinfo *user, int **msg);
+
 
 int main(){
 	srand( time(NULL) );
@@ -43,6 +49,7 @@ int main(){
 	int nPreambles = 64;
 	float delta = 90;
 	float cellRange = 400;
+	float noisePower = 0.1;
 	int nUE = 50;
 	
 	struct UEinfo *UE;
@@ -51,7 +58,7 @@ int main(){
 		return 1;
 	for(int k=0; k<nUE; ++k){
 		UEinfo_Initialize(UE+k);
-		Print_UEinfo(UE+k, k);
+		// Print_UEinfo(UE+k, k);
 	}
 		
 	float *distanceUE;
@@ -112,12 +119,22 @@ int main(){
 			Print_UEinfo(UE+i, i);
 		}
 		
+
+		AWGN(noisePower, allocatedResource, nPreambles);
+		
 		
 		printf(">>> Contention Resolution (MSG4)\n");
-		/*
-		Will be added
-		*/
-		
+		int **MSG4 = MSG4_Structure(nPreambles);
+		if( Check_Memory_Space((void *)MSG4) )
+			return 1;
+		MSG4_Transmission(MSG4, allocatedResource, collision, nPreambles);
+		// Print_MSG4(MSG4, nPreambles);
+		for(int i=0; i<nUE; ++i){
+			Contention_Resolution(UE+i, MSG4);
+			printf("User %2d: ", i);
+			RA_Result(UE+i);
+		}
+
 	}
 	return 0;
 }
@@ -171,7 +188,12 @@ void Print_UEinfo(struct UEinfo *user, int index){
 	printf(" | ");
 	printf("CCCH: ");
 	if(user->CCCH!=NULL){
-		for(int i=1; i<=*(user->CCCH); ++i)
+		int messageSize;
+		if(*(user->CCCH)==52)
+			messageSize = 48;
+		else
+			printf("Error: CCCH message size is not defined for LCID=%d\n", *(user->CCCH));
+		for(int i=1; i<=messageSize; ++i)
 			printf("%d", *(user->CCCH+i));
 	}
 	else
@@ -367,6 +389,7 @@ double complex** MSG3_Resource_Alocation(int n){
 		for(int i=0; i<n; i++){
 			*(resource+i) = (double complex *) calloc(24, sizeof(double complex));
 			// We can allocate more resources. 24 is enough for transmitting 6 bytes CCCH message with QPSK
+			// Also, MSG4 only uses the first 48 bits belonging to the uplink CCCH SDU within MSG3
 			if( *(resource+i)==NULL){
 				resource = NULL;	
 				break;
@@ -408,7 +431,7 @@ void CCCH_Message(struct UEinfo *user, int LCID){
 	if(LCID==52){
 		int messageSize = 48;
 		user->CCCH = (int *) calloc(messageSize+1, sizeof(int));
-		*(user->CCCH) = messageSize;
+		*(user->CCCH) = 52;
 		long int temp = (long int)rand()%(long int)pow(2,39);
 		int i=messageSize;
 		while(temp>0){
@@ -422,8 +445,14 @@ void CCCH_Message(struct UEinfo *user, int LCID){
 }
 
 void QPSK(int *bitstream, double complex *channel){
+	int L = 0;
+	if(*(bitstream)==52)
+		L = 48;
+	else
+		printf("Error: CCCH message size is not defined for LCID=%d\n", *(bitstream));
+		
 	int l=0;
-	for(int i=1; i<=*(bitstream);){
+	for(int i=1; i<=L;){
 		switch(2* (*(bitstream+i)) + (*(bitstream+i+1)) ){
 			case 0:
 				*(channel+l) +=  1 + 1 *I;
@@ -442,33 +471,89 @@ void QPSK(int *bitstream, double complex *channel){
 	}
 }
 
-void Print_Received_MSG(double complex **channel, int *collision_result, int n_resources){
-	for(int i=0; i<n_resources; i++){
-		if( *(collision_result+i)==1 ){
-			printf("Preamble %2d:\n", i);
-			for(int j=0; j<24; j++){
-				printf("%1.0f", creal( *(*(channel+i)+j) ) );	
-				        
-				if( cimag( *(*(channel+i)+j) )>=0 )
-					printf("+%1.0fI", cimag( *(*(channel+i)+j) ) );
-				if( cimag( *(*(channel+i)+j) )<0 ) 
-				        printf( "%1.0fI", cimag( *(*(channel+i)+j) ) );
-				printf("|");
-			}
-			printf("\n");
+void AWGN(float sigma2, double complex **resource, int n){
+	for(int i=0; i<n ;i++){
+		for(int j=0; j<24; j++){
+			float real = sigma2/2 * ( sqrt(3)*(float)rand()/(float)RAND_MAX - 2*sqrt(3) ); 
+			float imag = sigma2/2 * ( sqrt(3)*(float)rand()/(float)RAND_MAX - 2*sqrt(3) );
+			// Power of noise is sigma2. A random variable with distribution Unif[-sqrt(3),sqrt(3)] has a unit power
+			double complex noise = real + imag * I;
+			*(*(resource+i)+j) +=  noise;
 		}
 	}
 }
 
+int** MSG4_Structure(int n){
+	int **msg;
+	msg = (int **) calloc(n, sizeof(int *));
+	if( msg!=NULL ){
+		for(int i=0; i<n; i++){
+			*(msg+i) = (int *) calloc(48, sizeof(int));
+			if( *(msg+i)==NULL ){
+				msg = NULL;
+				break;
+			}
+		}
+	}	
+	return msg;
+}
+
+void MSG4_Transmission(int **msg, double complex **resource, int *collisionResult, int n){
+	for(int i=0; i<n; i++){
+		if(*(collisionResult+i)==1)
+			Decode(*(msg+i), *(resource+i));		
+	}
+}
+
+void Decode(int *bitstream, double complex *received){
+	double complex z;
+	for(int i=0; i<24; ++i){
+		z = *(received+i);	
+		if(creal(z)>=0 && cimag(z)>=0){
+			*(bitstream+2*i) = 0;
+			*(bitstream+2*i+1) = 0;
+		}
+		else if(creal(z)>0 && cimag(z)<0){
+			*(bitstream+2*i) = 1;
+			*(bitstream+2*i+1) = 0;
+		}
+		else if(creal(z)<0 && cimag(z)>0){
+			*(bitstream+2*i) = 0;
+			*(bitstream+2*i+1) = 1;
+		}
+		else if(creal(z)<=0 && cimag(z)<=0){
+			*(bitstream+2*i) = 1;
+			*(bitstream+2*i+1) = 1;
+		}		
+	}
+}
 
 
+void Print_MSG4(int **msg, int n){
+	for(int i=0; i<n; i++){
+		printf("Preamble %2d:    ", i);
+		for(int j=0; j<48; j++)
+			printf("%d", *(*(msg+i)+j));
+		printf("\n");
+	}
+}
 
-
-
-
-
-
-
+void Contention_Resolution(struct UEinfo *user, int **msg){
+	if( user->activityFlag==1 && user->CCCH!=NULL ){
+		int flag = 1;
+		for(int i=0; i<48; i++){
+			if( *(user->CCCH+i+1)!=*(*(msg+user->RAPID)+i) ){
+				flag = 0;
+				break;
+			}
+		}
+		user->raFlag = flag;	
+		if(flag==1){
+			for(int i=0; i<16; i++)
+				user->CRNTI[i] = user->TCRNTI[i];
+		}
+	}
+}
 
 
 
