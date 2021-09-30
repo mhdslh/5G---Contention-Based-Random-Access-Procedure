@@ -42,13 +42,18 @@ This program simulates contention based random access procedure in 5G networks. 
 	    11 -> -1 - 1 * I
 	    10 ->  1 - 1 * I
 	28- Structure of CCCH Message = R | R | LCID | CCCH SDU
-	29- In this program, modulation is used for trasferring CCCH SDU
+	29- In this program, we focus on trasferring CCCH SDU
 	30- When there is no collision over preamble i, BS allocates an uplink resource on the PUSCH for the transmission of MSG3 
-	31- In this program, we have allocated uplink resource even when collision is detected in MSG2
-	32- However, no UE uses this uplink resource since this preamble has no subheader in RAR
-	    
+	31- In this program, we have allocated uplink resources even when collision is detected in MSG2
+	32- However, no UE uses these uplink resources since these preambles have no subheader in RAR
+	
 	>>> For Contention Resolution (MSG4):
-	Will be added
+	33- Assume, UE decodes a DCI Format 1_0 which allocates PDSCH resources for MSG4 (we skip this step)
+	34- MSG4 includes the "UE Contention Resolution Identity" MAC Control Element
+	35- This MAC Control Element includes the first 48 bits belonging to the uplink CCCH SDU within MSG3
+	36- UE uses this MAC Control Element to determine whether or not the Random Access procedure has been successful
+	37- Procedure is successful if the content of the MAC Control Element matches the content of the CCCH SDU transmitted by UE
+	38- Otherwise, it means that contention has occurred and the MAC Control Element is intended for a different UE
+	39- If contention resoultion is successful, the TC-RNTI becomes the allocated C-RNTI
+	40- In addition, the UE uses the PUCCH to transmit a HARQ acknowledgement for MSG4
 	
-	
-	*/
