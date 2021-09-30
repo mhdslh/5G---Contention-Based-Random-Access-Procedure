@@ -11,7 +11,7 @@ This program simulates contention based random access procedure in 5G networks. 
 	
 	>>> For Random Access Response (MSG2)
 	 6- Base station is able to differentiate the PRACH transmissions of two UEs which select the same preamble if they appear 
-	   distinctly apart in the PDP, i.e., detect collision
+	    distinctly apart in the PDP, i.e., detect collision
 	 7- delta = tau * c, where tau denotes delay spread and c = 3*10^8[m/s]
 	 8- d_i denotes the distance between user i and the BS
 	 6, 7, 8 -> collision occuers if exists i and j such that |d_i-d_j|>delta
