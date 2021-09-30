@@ -134,7 +134,6 @@ int main(){
 			printf("User %2d: ", i);
 			RA_Result(UE+i);
 		}
-
 	}
 	return 0;
 }
